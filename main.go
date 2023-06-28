@@ -3,22 +3,23 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"time"
+
+	"github.com/olekukonko/tablewriter"
 )
 
 const baseURL = "https://my.glove80.com/api/layouts/v1/"
 
-var debug = false
-
 type Layout struct {
 	Metadata struct {
-		UUID               string   `json:"uuid"`
-		Date               int      `json:"date"`
+		UUID string `json:"uuid"`
+		// Date is a unix time stamp
+		Date               int64    `json:"date"`
 		Creator            string   `json:"creator"`
 		ParentUUID         string   `json:"parent_uuid"`
 		FirmwareAPIVersion string   `json:"firmware_api_version"`
@@ -33,6 +34,15 @@ type Layout struct {
 	// Don't know what these two do yet
 	Config        any `json:"config"`
 	CompilerInput any `json:"compiler_input"`
+}
+
+func (l Layout) Time() time.Time {
+	return time.Unix(int64(l.Metadata.Date), 0)
+}
+
+func (l Layout) AsRow() []string {
+	date := l.Time().Format("1/2/06")
+	return []string{date, l.Metadata.Title, l.Metadata.Notes, l.Metadata.Creator}
 }
 
 func getLayout(uid string) Layout {
@@ -59,7 +69,14 @@ func getLayout(uid string) Layout {
 }
 
 func main() {
+	var (
+		debug  = false
+		limit  int
+		offset int
+	)
 	flag.BoolVar(&debug, "debug", false, "Whether to print debug statements")
+	flag.IntVar(&limit, "limit", 10, "How many layouts to show")
+	flag.IntVar(&offset, "offset", 0, "How many layouts to skip")
 	flag.Parse()
 	args := flag.Args()
 	if len(args) > 1 {
@@ -92,5 +109,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("%+v\n", getLayout(uids[0]))
+
+	var rows [][]string
+	for _, uid := range uids[offset : offset+limit] {
+		layout := getLayout(uid)
+		rows = append(rows, layout.AsRow())
+	}
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Date", "Title", "Notes", "Author"})
+	table.AppendBulk(rows)
+	table.Render()
 }
