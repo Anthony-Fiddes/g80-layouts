@@ -13,13 +13,14 @@ import (
 	"os"
 	"time"
 
+	"github.com/adrg/xdg"
 	"github.com/olekukonko/tablewriter"
 )
 
 const (
-	baseURL    = "https://my.glove80.com/api/layouts/v1/"
-	cachePath  = "./cache.json"
-	cachePerms = 0644
+	baseURL       = "https://my.glove80.com/api/layouts/v1/"
+	cacheFileName = "g80-layouts-cache.json"
+	cachePerms    = 0644
 )
 
 type Layout struct {
@@ -52,7 +53,10 @@ func (l Layout) AsRow() []string {
 	return []string{date, l.Metadata.Title, l.Metadata.Notes, l.Metadata.Creator}
 }
 
-var cache = make(map[string]Layout)
+var (
+	cache     = make(map[string]Layout)
+	cachePath = ""
+)
 
 func readCache() {
 	cacheBytes, err := ioutil.ReadFile(cachePath)
@@ -106,6 +110,14 @@ func getLayout(uid string) Layout {
 }
 
 func main() {
+	var err error
+	cachePath, err = xdg.CacheFile(cacheFileName)
+	if err != nil {
+		log.Print("Could not find an XDG location to put the cache file")
+		// I'd rather panic than mess up someone's home folder lol
+		panic(err)
+	}
+
 	var (
 		debug  = false
 		limit  int
