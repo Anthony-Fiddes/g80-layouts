@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"io/fs"
 	"io/ioutil"
@@ -46,6 +47,12 @@ type Layout struct {
 
 func (l Layout) Time() time.Time {
 	return time.Unix(int64(l.Metadata.Date), 0)
+}
+
+// SemanticHash gives us a way of only showing a layout if it differs from
+// another based on any of the fields in the "hash"
+func (l Layout) SemanticHash() string {
+	return fmt.Sprintf("%s-%s", l.Metadata.Title, l.Metadata.Creator)
 }
 
 func (l Layout) AsRow() []string {
@@ -119,11 +126,13 @@ func main() {
 	}
 
 	var (
-		debug  = false
+		debug  bool
 		limit  int
 		offset int
+		redupe bool
 	)
 	flag.BoolVar(&debug, "debug", false, "Whether to print debug statements")
+	flag.BoolVar(&redupe, "redupe", false, "Whether to show layouts with the same title by the same creator")
 	flag.IntVar(&limit, "limit", 10, "How many layouts to show")
 	flag.IntVar(&offset, "offset", 0, "How many layouts to skip")
 	flag.Parse()
@@ -132,7 +141,7 @@ func main() {
 		log.Fatalf("%s only takes 1 argument at most (a comma separated list of tags to search for)", os.Args[0])
 	}
 	if !debug {
-		// this is a script, so we're just going to panic if anything goes
+		// This is a script, so we're just going to panic if anything goes
 		// wrong. I.e. all logs are for debugging.
 		log.Default().SetOutput(io.Discard)
 	}
@@ -162,10 +171,21 @@ func main() {
 		panic(err)
 	}
 
+	seenLayouts := make(map[string]struct{})
 	var rows [][]string
 	for _, uid := range uids[offset : offset+limit] {
 		layout := getLayout(uid)
-		rows = append(rows, layout.AsRow())
+		if redupe {
+			rows = append(rows, layout.AsRow())
+			continue
+		}
+
+		hash := layout.SemanticHash()
+		_, exists := seenLayouts[hash]
+		if !exists {
+			rows = append(rows, layout.AsRow())
+			seenLayouts[hash] = struct{}{}
+		}
 	}
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Date", "Title", "Notes", "Author"})
