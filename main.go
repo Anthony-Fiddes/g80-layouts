@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
+	"io/fs"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -13,7 +16,11 @@ import (
 	"github.com/olekukonko/tablewriter"
 )
 
-const baseURL = "https://my.glove80.com/api/layouts/v1/"
+const (
+	baseURL    = "https://my.glove80.com/api/layouts/v1/"
+	cachePath  = "./cache.json"
+	cachePerms = 0644
+)
 
 type Layout struct {
 	Metadata struct {
@@ -45,7 +52,36 @@ func (l Layout) AsRow() []string {
 	return []string{date, l.Metadata.Title, l.Metadata.Notes, l.Metadata.Creator}
 }
 
+var cache = make(map[string]Layout)
+
+func readCache() {
+	cacheBytes, err := ioutil.ReadFile(cachePath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		log.Print("Could not read layout cache.")
+		panic(err)
+	}
+	json.Unmarshal(cacheBytes, &cache)
+}
+
+func writeCache() {
+	cacheBytes, err := json.Marshal(cache)
+	if err != nil {
+		log.Print("Could not save layout cache.")
+		panic(err)
+	}
+	err = ioutil.WriteFile(cachePath, cacheBytes, cachePerms)
+	if err != nil {
+		log.Printf("Could not write cache to disk: %s", err)
+		return
+	}
+	log.Print("Successfully wrote cache to disk.")
+}
+
 func getLayout(uid string) Layout {
+	if _, ok := cache[uid]; ok {
+		return cache[uid]
+	}
+
 	layoutURL, err := url.Parse(baseURL)
 	if err != nil {
 		panic(err)
@@ -65,6 +101,7 @@ func getLayout(uid string) Layout {
 	}
 	result := Layout{}
 	json.Unmarshal(layoutBytes, &result)
+	cache[uid] = result
 	return result
 }
 
@@ -87,6 +124,9 @@ func main() {
 		// wrong. I.e. all logs are for debugging.
 		log.Default().SetOutput(io.Discard)
 	}
+
+	readCache()
+	defer writeCache()
 
 	searchURL, err := url.Parse(baseURL)
 	if err != nil {
